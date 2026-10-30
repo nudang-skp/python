@@ -151,7 +151,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
 .box{width:min(340px,100%);background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
 .box h3{margin:0 0 4px;font:500 18px var(--display)}
 .box p{margin:0 0 12px;color:var(--muted);font-size:14px}
-.box input{width:100%;font:500 20px var(--mono);letter-spacing:.3em;text-align:center;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.box input{width:100%;font:500 20px var(--mono);letter-spacing:.12em;text-align:center;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
 .box .err{color:var(--rose);font-size:13px;min-height:20px;margin:6px 0 0}
 .box .row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
 
@@ -173,7 +173,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
     <div class="hero-text">
       <p class="eyebrow">สไลด์ประกอบการเรียน · 10 บท</p>
       <h1>ฝึกเขียน Python พื้นฐาน</h1>
-      <p class="sub"> · Python · </p>
+      <p class="sub">จาก C สู่ Python · ครูจะเปิดบทใหม่ให้ทีละบทตามที่เรียนในห้อง</p>
       <div class="progress">
         <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="10" id="bar"><i></i></div>
         <b id="count">กำลังโหลด…</b>
@@ -207,7 +207,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
   <form class="box" id="pinform" autocomplete="off">
     <h3>เข้าโหมดครู</h3>
     <p>ใส่รหัสครูเพื่อดูบทที่ยังปิดอยู่</p>
-    <input id="pin" type="password" inputmode="numeric" aria-label="รหัสครู">
+    <input id="pin" type="password" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="รหัสครู">
     <div class="err" id="pinerr"></div>
     <div class="row">
       <button class="btn" type="button" id="cancel">ยกเลิก</button>
@@ -229,7 +229,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
   var state = {
-    open: {}, notes: {},
+    open: {}, notes: {}, keys: {},
     source: "config",            // config | sheet | cache
     sheetError: "",
     updated: null,
@@ -243,10 +243,11 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
     (list || []).forEach(function (n) { n = parseInt(n, 10); if (n >= 1 && n <= CHAPTERS.length) state.open[n] = true; });
   }
 
-  function slideUrl(ch) {
+  function slideUrl(ch, withKey) {
     var base = CONFIG.slidesBase || "";
     if (base && base.slice(-1) !== "/") base += "/";
-    return base + ch.file;
+    var k = withKey && state.keys[ch.n];
+    return base + ch.file + (k ? "?k=" + encodeURIComponent(k) : "");
   }
 
   /* ---------- Google Sheet (gviz JSONP: works inside sandboxed embeds, no CORS needed) ---------- */
@@ -286,7 +287,8 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
     var iNote = cols.findIndex(function (l) { return /หมายเหตุ|note/i.test(l); });
     if (iOpen < 0) iOpen = 2;
     if (iNote < 0) iNote = 3;
-    var open = [], notes = {}, seen = 0;
+    var iKey = cols.findIndex(function (l) { return /รหัส|key/i.test(l); });
+    var open = [], notes = {}, keys = {}, seen = 0;
     (res.table.rows || []).forEach(function (r) {
       var c = r.c || [];
       var n = parseInt(cellVal(c[0]), 10);
@@ -295,22 +297,24 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
       if (truthy(cellVal(c[iOpen]))) open.push(n);
       var note = cellVal(c[iNote]);
       if (note != null && String(note).trim()) notes[n] = String(note).trim();
+      var key = iKey >= 0 ? cellVal(c[iKey]) : null;
+      if (key != null && String(key).trim()) keys[n] = String(key).trim();
     });
     if (!seen) throw new Error("empty");
-    return { open: open, notes: notes };
+    return { open: open, notes: notes, keys: keys };
   }
 
   function refresh() {
     if (!sheetId()) { render(); return Promise.resolve(); }
     return loadSheet().then(parseSheet).then(function (d) {
-      setOpenList(d.open); state.notes = d.notes; state.source = "sheet"; state.sheetError = ""; state.updated = new Date();
-      store("sheet", { open: d.open, notes: d.notes, at: Date.now() });
+      setOpenList(d.open); state.notes = d.notes; state.keys = d.keys; state.source = "sheet"; state.sheetError = ""; state.updated = new Date();
+      store("sheet", { open: d.open, notes: d.notes, keys: d.keys, at: Date.now() });
     }).catch(function (e) {
       var cached = store("sheet");
       state.sheetError = e && e.message === "empty" ? "empty" : "fail";
       if (state.source === "sheet") state.source = "cache";
       else if (state.source !== "cache") {
-        if (cached && cached.open) { setOpenList(cached.open); state.notes = cached.notes || {}; state.source = "cache"; state.updated = new Date(cached.at); }
+        if (cached && cached.open) { setOpenList(cached.open); state.notes = cached.notes || {}; state.keys = cached.keys || {}; state.source = "cache"; state.updated = new Date(cached.at); }
         else { setOpenList(CONFIG.open); state.notes = {}; state.source = "config"; }
       }
     }).then(render);
@@ -334,7 +338,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
     var cur = $("current");
     if (latest) {
       var lc = CHAPTERS[latest - 1];
-      cur.href = slideUrl(lc);
+      cur.href = slideUrl(lc, true);
       cur.textContent = "เรียนบทล่าสุด: บทที่ " + latest + " →";
       cur.hidden = false;
     } else cur.hidden = true;
@@ -347,7 +351,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
       if (open && ch.n === latest) tags += '<span class="tag now">บทล่าสุด</span>';
       if (ch.exam) tags += '<span class="tag exam">เตรียมสอบ</span>';
       if (peek) tags += '<span class="tag peek">นักเรียนยังไม่เห็น</span>';
-      var url = esc(slideUrl(ch));
+      var url = esc(slideUrl(ch, open));
       var label = "บทที่ " + ch.n + " " + ch.title;
       var foot;
       if (open) foot = '<span class="slides">' + ch.slides + ' หน้า</span><a class="go" href="' + url + '" target="_blank" rel="noopener" tabindex="-1">เปิดสไลด์</a>';
@@ -369,7 +373,9 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
     $("viewstu").textContent = state.studentView ? "กลับโหมดครู" : "ดูแบบนักเรียน";
     var src = $("src"), msg = "", bad = false;
     if (sheetId()) {
-      if (state.source === "sheet") msg = "ควบคุมด้วย Google Sheet · ติ๊กช่อง \"เปิด\" ใน Sheet แล้วนักเรียนจะเห็นภายใน " + CONFIG.refreshSeconds + " วินาที";
+      var nokey = CHAPTERS.filter(function (c) { return state.open[c.n] && !state.keys[c.n]; }).map(function (c) { return c.n; });
+      if (state.source === "sheet" && nokey.length) { bad = true; msg = "บทที่ " + nokey.join(", ") + " เปิดแล้วแต่ยังไม่ได้ใส่รหัสบทใน Sheet นักเรียนจะเจอหน้าล็อก"; }
+      else if (state.source === "sheet") msg = "ควบคุมด้วย Google Sheet · ติ๊กช่อง \"เปิด\" และใส่รหัสบท แล้วนักเรียนจะเห็นภายใน " + CONFIG.refreshSeconds + " วินาที";
       else { bad = true; msg = (state.sheetError === "empty" ? "Sheet ไม่มีแถวบทที่ 1–10 " : "อ่าน Sheet ไม่ได้ (ตรวจว่าแชร์แบบทุกคนที่มีลิงก์ดูได้) ") + (state.source === "cache" ? "· ใช้ค่าล่าสุดที่เคยอ่านได้" : "· ใช้ค่า open ในไฟล์แทน"); }
       $("sheetlink").href = sheetEditUrl(); $("sheetlink").hidden = false;
     } else {
@@ -391,7 +397,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") $("modal").hidden = true; });
   $("pinform").onsubmit = function (e) {
     e.preventDefault();
-    if ($("pin").value.trim() === String(CONFIG.teacherPin)) {
+    if ($("pin").value.trim().toLowerCase() === String(CONFIG.teacherPin).trim().toLowerCase()) {
       state.teacher = true; state.studentView = false; sstore("teacher", "1"); $("modal").hidden = true; render();
     } else { $("pinerr").textContent = "รหัสไม่ถูกต้อง"; $("pin").select(); }
   };
@@ -413,7 +419,7 @@ h1{margin:2px 0 4px;font:600 clamp(22px,3.4vw,30px)/1.25 var(--display);color:va
   setOpenList(CONFIG.open);
   if (sheetId()) {
     var cached = store("sheet");
-    if (cached && cached.open) { setOpenList(cached.open); state.notes = cached.notes || {}; state.source = "cache"; state.updated = new Date(cached.at); render(); }
+    if (cached && cached.open) { setOpenList(cached.open); state.notes = cached.notes || {}; state.keys = cached.keys || {}; state.source = "cache"; state.updated = new Date(cached.at); render(); }
     refresh();
     var every = Math.max(20, +CONFIG.refreshSeconds || 60) * 1000;
     setInterval(function () { if (!document.hidden) refresh(); }, every);
